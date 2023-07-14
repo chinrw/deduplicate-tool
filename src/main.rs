@@ -1,14 +1,20 @@
 use clap::Parser;
 use mime_guess::from_path;
-use rayon::prelude::*;
+use std::sync::Arc;
 use std::collections::HashMap;
-use std::fs;
+use tokio::fs::remove_file;
 use walkdir::{DirEntry, WalkDir};
 
+use std::path::PathBuf;
+
 #[derive(Parser)]
+#[command(author, version, about, long_about = None)]
 struct Args {
     // The path to read
     path: std::path::PathBuf,
+
+    #[clap(short, long, default_value = "false")]
+    dry_run: bool,
 }
 
 fn is_video_file(entry: &DirEntry) -> bool {
@@ -21,14 +27,52 @@ fn is_valid_entry(entry: &DirEntry) -> bool {
     entry.file_type().is_file() && is_video_file(entry)
 }
 
-fn delete_file(path: &std::path::PathBuf) -> std::io::Result<()> {
-    fs::remove_file(path)
+async fn delete_file(path: &PathBuf) -> std::io::Result<()> {
+    let args = Args::parse();
+    if args.dry_run {
+        println!("Dry run mode, will not delete file: {:?}", path);
+        Ok(())
+    } else {
+        remove_file(path).await
+    }
 }
 
-fn main() {
+async fn process_entry(
+    entry: (String, PathBuf),
+    entries_map: Arc<HashMap<String, PathBuf>>,
+) -> Result<(), std::io::Error> {
+    let (key, value) = entry;
+    let parts: Vec<&str> = key.rsplitn(2, '.').collect();
+    let file_name = parts.last().unwrap();
+    let extension = if parts.len() > 1 { parts[0] } else { "" };
+
+    // Add the suffix to the filename and reconstruct the full file name
+    let subtitle_version = format!("{}-C.{}", file_name, extension);
+
+    if entries_map.contains_key(&subtitle_version) {
+        println!("file will delete {:?}", value);
+        delete_file(&value).await?;
+        println!("File deleted successfully: {:?}", value);
+
+        // also delete the related nfo file
+        let nfo_file = value.with_extension("nfo");
+        println!("file will delete {:?}", nfo_file);
+        delete_file(&nfo_file).await?;
+        println!("File deleted successfully: {:?}", nfo_file);
+    }
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), std::io::Error> {
     // Parse the command line arguments
     let args = Args::parse();
     println!("The path is: {:?}", args.path);
+
+    if args.dry_run {
+        println!("Dry run mode");
+    }
 
     let iter = WalkDir::new(&args.path)
         .into_iter()
@@ -47,31 +91,20 @@ fn main() {
         })
         .collect();
 
-    // let entries: Vec<_> = iter.collect();
+    let entries_map_arc = Arc::new(entries_map.clone());
+    // let entries_map_arc_iter = Arc::clone(&entries_map_arc);
+    let mut handles: Vec<_> = Vec::new();
+    for entry in entries_map.clone() {
+        // let entry_clone = Arc::new(entry);
+        let entries_map_arc_clone = Arc::clone(&entries_map_arc);
+        let handle = tokio::spawn(async move { process_entry(entry, entries_map_arc_clone).await });
+        handles.push(handle);
+    }
 
-    // Process the entries in parallel using rayon
-    entries_map.par_iter().for_each(|(key, value)| {
-        // check if has the subtitle version
-        let parts: Vec<&str> = key.rsplitn(2, '.').collect();
-        let file_name = parts.last().unwrap();
-        let extension = if parts.len() > 1 { parts[0] } else { "" };
+    // Wait for all spawned tasks to complete
+    for handle in handles {
+        let _ = handle.await?;
+    }
 
-        // Add the suffix to the filename and reconstruct the full file name
-        let subtitle_version = format!("{}-C.{}", file_name, extension);
-        if entries_map.contains_key(&subtitle_version) {
-            println!("file will delete {:?}", value);
-            match delete_file(value) {
-                Ok(()) => println!("File deleted successfully: {:?}", value),
-                Err(error) => eprintln!("Error deleting file: {}", error),
-            }
-
-            // also delete the related nfo file
-            let nfo_file = value.with_extension("nfo");
-            println!("file will delete {:?}", nfo_file);
-            match delete_file(&nfo_file) {
-                Ok(()) => println!("File deleted successfully: {:?}", nfo_file),
-                Err(error) => eprintln!("Error deleting file: {}", error),
-            }
-        }
-    });
+    Ok(())
 }
