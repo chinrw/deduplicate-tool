@@ -49,28 +49,30 @@ async fn process_entry(
 
     // Add the suffix to the filename and reconstruct the full file name
     let subtitle_version = format!("{}-C.{}", file_name, extension);
+    let subtitle_version_uc = format!("{}-UC.{}", file_name, extension);
 
-    if entries_map.contains_key(&subtitle_version) {
+    if entries_map.contains_key(&subtitle_version) || entries_map.contains_key(&subtitle_version_uc)
+    {
         println!(
             "file will delete {:?} since exist {}",
             value, subtitle_version
         );
         delete_file(&value).await?;
-        println!("File deleted successfully: {:?}", value);
 
-        // also delete the related nfo file
-        let nfo_file = value.with_extension("nfo");
-        println!("file will delete {:?}", nfo_file);
-        delete_file(&nfo_file).await?;
-        println!("File deleted successfully: {:?}", nfo_file);
-
-        // TODO: delete the images
+        // delete the images and nfo
+        let extensions = ["thumb", "fanart", "poster, nfo"];
+        for ext in &extensions {
+            let file = value.with_extension(ext);
+            println!("file will delete {:?}", file);
+            delete_file(&file).await?;
+        }
     }
 
     Ok(())
 }
 
-fn main() -> Result<(), std::io::Error> {
+#[tokio::main]
+async fn main() -> Result<(), std::io::Error> {
     // Parse the command line arguments
     let args = Args::parse();
     println!("The path is: {:?}", args.path);
@@ -85,7 +87,7 @@ fn main() -> Result<(), std::io::Error> {
         .filter(is_valid_entry);
 
     // let rt = runtime::Builder::new_multi_thread()
-    //     .worker_threads(2)
+    //     .worker_threads(1)
     //     .build()?;
 
     let entries_map: HashMap<String, std::path::PathBuf> = iter
@@ -106,8 +108,9 @@ fn main() -> Result<(), std::io::Error> {
     for entry in entries_map.clone() {
         // let entry_clone = Arc::new(entry);
         let entries_map_arc_clone = Arc::clone(&entries_map_arc);
-        // let handle = rt.block_on(async move { process_entry(entry, entries_map_arc_clone).await });
-        process_entry(entry, entries_map_arc_clone);
+        let _ = tokio::task::spawn_blocking(move || process_entry(entry, entries_map_arc_clone))
+            .await?;
+        // process_entry(entry, entries_map_arc_clone);
         // handles.push(handle);
     }
 
