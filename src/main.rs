@@ -1,9 +1,7 @@
 use clap::Parser;
 use mime_guess::from_path;
 use std::collections::HashMap;
-// use std::sync::Arc;
 use tokio::fs::remove_file;
-// use tokio::runtime;
 use walkdir::{DirEntry, WalkDir};
 
 use std::path::PathBuf;
@@ -82,11 +80,10 @@ async fn process_entry(
             let mut path = PathBuf::from(path_parent);
             path.push(ext);
 
-            let file = PathBuf::from(path);
-            println!("file will delete {:?}", file);
-            match delete_file(&file).await {
-                Ok(_) => println!("File deleted successfully: {:?}", file),
-                Err(e) => println!("Failed to delete file: {:?}, error: {}", file, e),
+            println!("file will delete {:?}", path);
+            match delete_file(&path).await {
+                Ok(_) => println!("File deleted successfully: {:?}", path),
+                Err(e) => println!("Failed to delete file: {:?}, error: {}", path, e),
             }
         }
     }
