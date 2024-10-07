@@ -10,3 +10,6 @@ clap = { version = "4.3.11", features = ["derive"] }
 walkdir = { version = "2.3.3" }
 mime_guess = { version = "2.0.4" }
 tokio = { version = "1.36.0", features = ["fs", "macros", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+zstd = "0"
